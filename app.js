@@ -27,16 +27,62 @@
   const STATIC_MODE =
     !!(typeof window !== "undefined" && window.TPO_STATIC) ||
     /[?&]static=1(?:&|$)/.test(location.search) ||
-    location.protocol === "file:";
+    location.protocol === "file:" ||
+    /(?:^|\.)github\.io$/i.test(location.hostname) ||
+    /(?:^|\.)github\.io(?::\d+)?$/i.test(String(location.host || ""));
+
+  function staticProfilesUrl() {
+    try {
+      return new URL("data/profiles.json", document.baseURI || location.href).href;
+    } catch (_) {
+      return "data/profiles.json";
+    }
+  }
+
+  async function readResponseJson(res, label) {
+    const ct = (res.headers && res.headers.get("content-type")) || "";
+    const text = await res.text();
+    const trimmed = (text || "").replace(/^\uFEFF/, "").trimStart();
+    const looksHtml =
+      trimmed.startsWith("<") ||
+      /^<!DOCTYPE/i.test(trimmed) ||
+      /^<html/i.test(trimmed);
+    const ctOk = /json/i.test(ct);
+    if (looksHtml || (!ctOk && trimmed && !trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+      throw new Error(
+        "靜態版無 API（" +
+          (label || res.url || "response") +
+          " 回咗 HTML）。請用 data/profiles.json，或喺本地 Flask 跑。"
+      );
+    }
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(
+        "靜態版無 API／JSON 解析失敗（" +
+          (label || "response") +
+          "）：" +
+          (e.message || e)
+      );
+    }
+  }
 
   async function loadStaticProfiles() {
-    const urls = ["data/profiles.json", "./data/profiles.json"];
+    const urls = [staticProfilesUrl(), "data/profiles.json", "./data/profiles.json"];
+    // de-dupe
+    const seen = new Set();
+    const list = [];
+    for (const u of urls) {
+      if (!u || seen.has(u)) continue;
+      seen.add(u);
+      list.push(u);
+    }
     let lastErr = null;
-    for (const url of urls) {
+    for (const url of list) {
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { cache: "no-cache" });
         if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
-        return await res.json();
+        return await readResponseJson(res, url);
       } catch (e) {
         lastErr = e;
       }
@@ -1098,8 +1144,9 @@
         tail: "1",
       });
       const t0 = performance.now();
+      if (STATIC_MODE) return;
       const res = await fetch("/api/profiles?" + qs.toString());
-      const payload = await res.json();
+      const payload = await readResponseJson(res, "/api/profiles");
       if (!res.ok || payload.error) throw new Error(payload.error || "HTTP " + res.status);
       ingestProfiles(payload);
       const ms = Math.round(performance.now() - t0);
@@ -1165,7 +1212,7 @@
       });
       lastParamsKey = qs.toString();
       const res = await fetch("/api/profiles?" + qs.toString());
-      payload = await res.json();
+      payload = await readResponseJson(res, "/api/profiles");
       if (!res.ok || payload.error) throw new Error(payload.error || "HTTP " + res.status);
       }
 
@@ -1212,6 +1259,11 @@
   }
 
   function rebuildVisible() {
+    if (STATIC_MODE) {
+      showSrcNote("靜態版：Reload snapshot（無 Flask API）…");
+      fetchAndBuild({ refresh: false });
+      return;
+    }
     fetchAndBuild({ refresh: false });
   }
 
@@ -1621,6 +1673,9 @@
       $("csvText").value = text;
       const bars = parseCSV(text);
       const symbol = ($("symbol").value || "UPLOAD").trim();
+      if (STATIC_MODE) {
+        throw new Error("靜態版無 API：GitHub Pages 唔支援 Upload/ingest，請用本地 Flask。");
+      }
       const res = await fetch("/api/ingest/tv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1631,7 +1686,7 @@
           timezone: $("tz").value,
         }),
       });
-      const payload = await res.json();
+      const payload = await readResponseJson(res, "/api/ingest/tv");
       if (!res.ok || payload.error) throw new Error(payload.error || "ingest failed");
       $("source").value = "tv";
       $("symbol").value = symbol.startsWith("HK") || symbol.includes(":") ? symbol : "UPLOAD:" + symbol;
@@ -1711,13 +1766,20 @@
     if (!layoutEl) return;
     layoutEl.classList.toggle("settings-collapsed", !!collapsed);
     if (btnCollapseSettings) {
+      // Header control only meaningful while expanded (aside visible)
       btnCollapseSettings.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      btnCollapseSettings.textContent = collapsed ? "設定" : "收起";
-      btnCollapseSettings.title = collapsed ? "展開設定" : "收起設定";
+      btnCollapseSettings.textContent = "收起";
+      btnCollapseSettings.title = "收起設定";
+      btnCollapseSettings.hidden = !!collapsed;
     }
     if (btnExpandSettings) {
-      btnExpandSettings.classList.toggle("show", !!collapsed);
-      btnExpandSettings.setAttribute("aria-hidden", collapsed ? "false" : "true");
+      // Always show FAB: 「設定」when collapsed, 「收起」when expanded (mobile thumb reach)
+      btnExpandSettings.classList.add("show");
+      btnExpandSettings.classList.toggle("is-collapse", !collapsed);
+      btnExpandSettings.textContent = collapsed ? "設定" : "收起";
+      btnExpandSettings.setAttribute("aria-label", collapsed ? "展開設定" : "收起設定");
+      btnExpandSettings.title = collapsed ? "展開設定" : "收起設定";
+      btnExpandSettings.setAttribute("aria-hidden", "false");
     }
     if (persist) {
       try {
@@ -1747,13 +1809,19 @@
   }
 
   if (btnCollapseSettings) {
-    btnCollapseSettings.addEventListener("click", () => {
-      const now = layoutEl && layoutEl.classList.contains("settings-collapsed");
-      setSettingsCollapsed(!now);
+    btnCollapseSettings.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSettingsCollapsed(true);
     });
   }
   if (btnExpandSettings) {
-    btnExpandSettings.addEventListener("click", () => setSettingsCollapsed(false));
+    btnExpandSettings.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = layoutEl && layoutEl.classList.contains("settings-collapsed");
+      setSettingsCollapsed(!now);
+    });
   }
 
 
