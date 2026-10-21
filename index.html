@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TPO Letter Hourglass MVP · HSIF</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9bb4;
+      --accent: #3b82f6;
+      --poc: #f59e0b;
+      --va: #22c55e;
+      --ib: #a855f7;
+      --spike: #ef4444;
+      --dual: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      flex-shrink: 0;
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: 0 2px 12px #0006;
+    }
+    header h1 { margin: 0 0 0.15rem; font-size: 1.05rem; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 0.8rem; }
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 0;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(180px, 40vh) 1fr;
+      }
+      aside {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      align-self: stretch;
+      z-index: 150;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 1rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      max-height: 100%;
+      height: 100%;
+      box-shadow: 4px 0 16px #0005;
+    }
+    main {
+      padding: 0.75rem 1.25rem 1rem;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+    }
+    .main-chrome {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, var(--bg) 85%, transparent);
+      padding-bottom: 0.25rem;
+    }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin: 0.65rem 0 0.25rem;
+    }
+    input, select, textarea, button {
+      font: inherit;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem 0.55rem;
+      width: 100%;
+    }
+    textarea {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      min-height: 90px;
+      resize: vertical;
+    }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    button {
+      cursor: pointer;
+      width: auto;
+      background: var(--accent);
+      border-color: transparent;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    button.secondary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text);
+    }
+    button:hover { filter: brightness(1.08); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      margin-bottom: 0.5rem;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    .stats span b { color: var(--muted); font-weight: 500; margin-right: 0.25rem; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      flex-shrink: 0;
+    }
+    .legend i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 0.3rem;
+      vertical-align: middle;
+    }
+    .range-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.25rem;
+    }
+    .range-btn {
+      font-size: 0.75rem;
+      padding: 0.3rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      width: auto;
+      font-weight: 600;
+    }
+    .range-btn.active {
+      background: var(--accent);
+      border-color: transparent;
+      color: #fff;
+    }
+    .profiles-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+    }
+    .profiles-row {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 0.35rem;
+      width: max-content;
+      min-height: 100%;
+    }
+    .day-col {
+      flex: 0 0 auto;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0c1118;
+      padding: 0.35rem 0.4rem 0.5rem;
+    }
+    .day-col.single { min-width: 18rem; }
+    .day-head {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .day-head b { color: var(--text); font-weight: 600; display: block; font-size: 0.8rem; }
+    .day-meta { font-size: 0.65rem; color: var(--muted); margin-top: 0.15rem; }
+    pre.profile {
+      margin: 0;
+      font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.28;
+      letter-spacing: 0.02em;
+      white-space: pre;
+    }
+    .price {
+      color: var(--muted);
+      display: inline-block;
+      min-width: 5.5ch;
+      text-align: right;
+      margin-right: 0.4rem;
+      user-select: none;
+    }
+    .day-col.single .price { min-width: 7ch; margin-right: 0.75rem; }
+    .letters { color: #c8d4e8; }
+    .row-poc .letters { color: var(--poc); font-weight: 700; }
+    .row-va .letters { color: #86efac; }
+    .row-spike .letters { color: var(--spike); }
+    .row-dual .letters { color: var(--dual); }
+    .row-ib .price { color: var(--ib); }
+    .row-empty .letters { color: transparent; }
+    .tag {
+      font-size: 0.65rem;
+      margin-left: 0.35rem;
+      color: var(--muted);
+      font-family: system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+    .tag.poc { color: var(--poc); }
+    .tag.vah, .tag.val { color: var(--va); }
+    .tag.ib { color: var(--ib); }
+    .err {
+      color: #fca5a5;
+      background: #3f1d1d;
+      border: 1px solid #7f1d1d;
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+      display: none;
+      flex-shrink: 0;
+    }
+    .err.show { display: block; }
+    .oknote {
+      color: #bbf7d0;
+      background: #14532d55;
+      border: 1px solid #166534;
+      padding: 0.45rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      display: none;
+    }
+    .oknote.show { display: block; }
+    details.fallback {
+      margin-top: 1rem;
+      border-top: 1px dashed var(--border);
+      padding-top: 0.75rem;
+    }
+    details.fallback summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+    .chip {
+      font-size: 0.7rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      width: auto;
+    }
+    .chip:hover { color: var(--text); border-color: var(--accent); }
+
+    .day-placeholder { opacity: 0.45; }
+    .day-placeholder .day-meta { color: var(--muted); }
+    .virt-spacer { flex: 0 0 auto; pointer-events: none; }
+
+    /* Shared-price aligned layout (TV-style TPO) */
+    .profiles-aligned {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      width: max-content;
+      min-height: 100%;
+    }
+    .price-axis {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      flex: 0 0 auto;
+      background: #0a0e14;
+      border-right: 1px solid var(--border);
+      box-shadow: 4px 0 12px #0008;
+    }
+    .axis-head b { font-size: 0.72rem; }
+    .axis-label {
+      position: absolute;
+      left: 0;
+      right: 2px;
+      text-align: right;
+      color: var(--muted);
+      font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+      font-size: 10px;
+      padding-right: 4px;
+      pointer-events: none;
+      white-space: nowrap;
+      border-top: 1px solid #1a233255;
+    }
+    .day-col.aligned {
+      padding: 0;
+      overflow: hidden;
+      min-width: 0 !important;
+      border-radius: 2px;
+    }
+    .day-col.aligned.thin .day-meta { display: none; }
+    .day-col.aligned.thin .day-head {
+      padding: 0.1rem 0.05rem;
+      font-size: 0.55rem;
+    }
+    .day-col.aligned.thin .day-head b {
+      font-size: 0.55rem;
+      letter-spacing: -0.02em;
+    }
+    .day-col.aligned .day-head {
+      padding: 0.25rem 0.3rem;
+      margin: 0;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #0c1118ee;
+      backdrop-filter: blur(4px);
+      overflow: hidden;
+    }
+    .day-col.aligned .day-head b {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* Density bars: width set inline ∝ TPO count — keeps bell/hourglass at low zoom */
+    .tpo-cell.bar-only {
+      left: 1px;
+      right: auto;
+      color: transparent !important;
+      background: #5b7fb0cc;
+      border-radius: 1px;
+      min-width: 2px;
+      padding: 0;
+      overflow: hidden;
+    }
+    .tpo-cell.bar-only.row-poc { background: #f59e0bdd; }
+    .tpo-cell.bar-only.row-va { background: #22c55e99; }
+    .tpo-cell.bar-only.row-spike { background: #ef4444aa; }
+    .tpo-cell.bar-only.row-dual { background: #38bdf8aa; }
+    .tpo-cell.bar-only.row-ib { box-shadow: inset 2px 0 0 var(--ib); }
+    .day-body {
+      position: relative;
+      overflow: hidden;
+    }
+    .tpo-cell {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      color: #c8d4e8;
+      box-sizing: border-box;
+    }
+    .tpo-cell.row-poc { color: var(--poc); font-weight: 700; background: #f59e0b22; }
+    .tpo-cell.row-va { color: #86efac; }
+    .tpo-cell.row-spike { color: var(--spike); }
+    .tpo-cell.row-dual { color: var(--dual); }
+    .tpo-cell.row-ib { box-shadow: inset 2px 0 0 var(--ib); }
+    .poc-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #f59e0b88;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .zoom-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 0.35rem;
+      flex-shrink: 0;
+    }
+    .zoom-bar button {
+      width: auto;
+      font-size: 0.75rem;
+      padding: 0.28rem 0.55rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .zoom-bar button:hover { border-color: var(--accent); }
+    .zoom-bar .zoom-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-width: 3.5rem;
+      text-align: center;
+    }
+    .zoom-bar .hint-inline {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-left: 0.35rem;
+    }
+
+    /* Chart stage: scroll + overlay crosshair + sticky timeline */
+    .chart-stage {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .hg-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .hg-wrap .profiles-scroll {
+      flex: 1;
+      min-height: 0;
+      border-radius: 8px 8px 0 0;
+      border-bottom: none;
+    }
+    .crosshair-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 40;
+      overflow: hidden;
+      display: none;
+    }
+    .crosshair-overlay.show { display: block; }
+    .ch-v, .ch-h {
+      position: absolute;
+      background: #93c5fd88;
+      pointer-events: none;
+    }
+    .ch-v {
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      left: 0;
+    }
+    .ch-h {
+      left: 0;
+      right: 0;
+      height: 1px;
+      top: 0;
+    }
+    .ch-hud {
+      position: absolute;
+      z-index: 41;
+      transform: translate(12px, 12px);
+      background: #0f1720ee;
+      border: 1px solid #3b82f6aa;
+      color: #e7ecf3;
+      font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 0.35rem 0.55rem;
+      border-radius: 6px;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px #000a;
+      pointer-events: none;
+    }
+    .ch-hud .ch-date { color: #93c5fd; }
+    .ch-hud .ch-pts { color: #fbbf24; }
+    .ch-hud .ch-sep { color: #8b9bb4; margin: 0 0.35rem; }
+
+    .timeline {
+      flex-shrink: 0;
+      height: 28px;
+      background: #0c1118;
+      border: 1px solid var(--border);
+      border-top: 1px solid #2d3a4f;
+      border-radius: 0;
+      border-bottom: none;
+      overflow: hidden;
+      position: relative;
+      z-index: 45;
+    }
+    .timeline-inner {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      will-change: transform;
+    }
+    .tl-tick {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      border-left: 1px solid #2d3a4f88;
+      padding-left: 3px;
+      font-size: 10px;
+      line-height: 28px;
+      color: var(--muted);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .tl-tick.active {
+      color: #93c5fd;
+      border-left-color: #3b82f6;
+      font-weight: 700;
+    }
+    .tl-readout {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 11px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      color: #e7ecf3;
+      background: #0f1720cc;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      pointer-events: none;
+      z-index: 2;
+    }
+    .tl-readout b { color: #fbbf24; font-weight: 700; }
+
+    /* Stronger HG silhouette at low zoom */
+    .tpo-cell.bar-only {
+      left: 0 !important;
+      right: auto !important;
+      color: transparent !important;
+      background: #6b8fc4ee;
+      border-radius: 0;
+      min-width: 2px !important;
+      padding: 0 !important;
+      overflow: hidden;
+      box-shadow: none;
+      border-top: none;
+    }
+    .tpo-cell.bar-only.row-poc { background: #f59e0bff; }
+    .tpo-cell.bar-only.row-va { background: #22c55ecc; }
+    .tpo-cell.bar-only.row-spike { background: #ef4444dd; }
+    .tpo-cell.bar-only.row-dual { background: #38bdf8dd; }
+    .tpo-cell.bar-only.row-ib { box-shadow: inset 2px 0 0 #a855f7; }
+    .day-col.aligned.bar-mode .day-body {
+      background: linear-gradient(90deg, #0a0e14 0%, #0d1219 100%);
+    }
+    .day-col.aligned.bar-mode {
+      border-color: #1e293b;
+    }
+
+    .trend-pane {
+      flex-shrink: 0;
+      height: 84px;
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-top: 1px solid #2d3a4f;
+      border-radius: 0 0 8px 8px;
+      position: relative;
+      z-index: 45;
+      overflow: hidden;
+    }
+    .trend-pane canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .trend-badge {
+      position: absolute;
+      left: 8px;
+      top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+      z-index: 2;
+      background: #0a0e14cc;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+    }
+
+    /* Single-pin (isolated single-print) orphan highlights */
+    .profiles-row {
+      position: relative;
+    }
+    .single-pin-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      z-index: 3;
+      overflow: visible;
+    }
+    .single-pin-bar {
+      position: absolute;
+      background: rgba(186, 150, 220, 0.35);
+      border: 1px solid rgba(186, 150, 220, 0.55);
+      border-radius: 1px;
+      box-sizing: border-box;
+      pointer-events: auto;
+      cursor: help;
+      z-index: 3;
+    }
+    .single-pin-bar:hover {
+      background: rgba(186, 150, 220, 0.55);
+      border-color: rgba(210, 180, 240, 0.9);
+    }
+    .single-pin-tip {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 42;
+      display: none;
+      background: #1a1028ee;
+      border: 1px solid #c4a0e0aa;
+      color: #e7ecf3;
+      font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 0.35rem 0.55rem;
+      border-radius: 6px;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px #000a;
+      pointer-events: none;
+    }
+    .single-pin-tip.show { display: block; }
+    .single-pin-tip .sp-pts { color: #e9d5ff; }
+    .single-pin-tip .sp-date { color: #c4b5fd; }
+    .single-pin-tip .sp-sep { color: #8b9bb4; margin: 0 0.35rem; }
+
+    .trend-badge b { color: #38bdf8; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TPO Letter Hourglass · HSIF MVP <span style="font-size:0.7em;color:#c4b5fd">(static)</span></h1>
+    <p>TV-style aligned TPO letter walls · shared Points scale · zoom/fit · session <b>0930→0300</b> HK</p>
+  </header>
+  <div class="layout">
+    <aside>
+      <label>Data source</label>
+      <select id="source">
+        <option value="auto" selected>Auto (Futu → TV → Yahoo)</option>
+        <option value="futu">Futu OpenD (HSIF)</option>
+        <option value="tv">TradingView (HKEX:HSI1!)</option>
+        <option value="yahoo">Yahoo (spot / US test)</option>
+      </select>
+
+      <label>Ticker / code</label>
+      <input id="symbol" value="HSIF" list="symbolHints" placeholder="HSIF / HK.HSImain / HKEX:HSI1!" />
+      <datalist id="symbolHints">
+        <option value="HSIF"></option>
+        <option value="HK.HSImain"></option>
+        <option value="HK.MHmain"></option>
+        <option value="HKEX:HSI1!"></option>
+        <option value="^HSI"></option>
+        <option value="AAPL"></option>
+      </datalist>
+      <div class="chip-row">
+        <button type="button" class="chip" data-sym="HSIF" data-src="auto">HSIF</button>
+        <button type="button" class="chip" data-sym="HK.HSImain" data-src="futu">Futu main</button>
+        <button type="button" class="chip" data-sym="HKEX:HSI1!" data-src="tv">TV HSI1!</button>
+        <button type="button" class="chip" data-sym="^HSI" data-src="yahoo">^HSI spot</button>
+      </div>
+
+      <label>Range (side-by-side daily walls)</label>
+      <div class="range-row" id="rangeRow">
+        <button type="button" class="range-btn" data-range="day">Day</button>
+        <button type="button" class="range-btn" data-range="week">Week (5)</button>
+        <button type="button" class="range-btn" data-range="month">Month (~22)</button>
+        <button type="button" class="range-btn active" data-range="half">Half-year (~120)</button>
+      </div>
+      <input type="hidden" id="rangeMode" value="half" />
+
+      <label>Session date (optional — Day mode / anchor)</label>
+      <input id="sessDate" type="date" />
+
+      <div class="row2">
+        <div>
+          <label>Session open (HHmm)</label>
+          <input id="sessOpen" value="0930" maxlength="4" />
+        </div>
+        <div>
+          <label>Session close (HHmm)</label>
+          <input id="sessClose" value="0300" maxlength="4" />
+        </div>
+      </div>
+      <label>Timezone</label>
+      <select id="tz">
+        <option value="Asia/Hong_Kong" selected>Asia/Hong_Kong</option>
+        <option value="America/New_York">America/New_York</option>
+        <option value="America/Chicago">America/Chicago</option>
+        <option value="UTC">UTC</option>
+        <option value="Exchange">Exchange / local</option>
+      </select>
+
+      <div class="row2">
+        <div>
+          <label>Points per level</label>
+          <input id="points" type="number" value="5" min="0.01" step="0.01" />
+        </div>
+        <div>
+          <label>TPO block (min)</label>
+          <input id="blockMin" type="number" value="30" min="5" max="120" step="5" />
+        </div>
+      </div>
+
+      <label>Alphabet</label>
+      <select id="alphabet">
+        <option value="hk" selected>HK-style (skip J/K, start D)</option>
+        <option value="classic">Classic A…Z a…z</option>
+      </select>
+      <label>First letter (HK)</label>
+      <input id="firstLetter" value="D" maxlength="1" />
+
+      <label>Value Area %</label>
+      <input id="vaPct" type="number" value="70" min="50" max="95" step="1" />
+
+      <label><input type="checkbox" id="alignPrices" checked style="width:auto;margin-right:0.35rem" /> Align price scale (TV-style shared bins — on for week/month/half)</label>
+
+      <div class="btn-row">
+        <button type="button" id="btnFetch">Fetch &amp; build</button>
+        <button type="button" id="btnBuild" class="secondary">Rebuild</button>
+      </div>
+      <div id="srcNote" class="oknote"></div>
+      <p class="hint">
+        HSIF overnight <b>0930→0300</b> HK.
+        <b>Shared price scale</b>: same Points=5 row across all days (like TV TPO).
+        Column width = that day’s max TPO prints. Zoom / Fit-all / <b>30d·60d</b>. &lt;50% = density HG silhouette. Crosshair/timeline = date + pts · bottom mid trend · right pad for latest. Virtualized.
+        Futu OpenD <code>127.0.0.1:11111</code> · TV cache / bridge / inbox.
+      </p>
+
+      <details class="fallback">
+        <summary>Fallback only — sample / upload / paste</summary>
+        <div class="btn-row" style="margin-top:0.5rem">
+          <button type="button" id="btnSample" class="secondary">Load sample CSV</button>
+          <button type="button" id="btnFile" class="secondary">Upload CSV…</button>
+          <input type="file" id="fileInput" accept=".csv,text/csv,text/plain" hidden />
+        </div>
+        <label>Paste CSV (last resort)</label>
+        <textarea id="csvText" placeholder="datetime,high,low&#10;..."></textarea>
+      </details>
+    </aside>
+    <main>
+      <div class="main-chrome">
+      <div id="err" class="err"></div>
+      <div class="stats" id="stats"></div>
+      <div class="legend">
+        <span><i style="background:#f59e0b"></i>POC</span>
+        <span><i style="background:#22c55e"></i>Value Area</span>
+        <span><i style="background:#a855f7"></i>IB range</span>
+        <span><i style="background:#38bdf8"></i>Dual</span>
+        <span><i style="background:#ef4444"></i>Spike</span>
+        <span>Same price = same row across days · scroll H/V</span>
+      </div>
+      <div class="zoom-bar" id="zoomBar">
+        <button type="button" id="btnZoomOut" title="Zoom out">−</button>
+        <span class="zoom-label" id="zoomLabel">100%</span>
+        <button type="button" id="btnZoomIn" title="Zoom in">+</button>
+        <button type="button" id="btnZoomFit" title="Fit all loaded days &amp; price range">Fit all</button>
+        <button type="button" id="btnView30" title="Fit ~30 day columns in view">30d</button>
+        <button type="button" id="btnView60" title="Fit ~60 day columns in view">60d</button>
+        <button type="button" id="btnZoom100" title="Reset zoom">100%</button>
+        <span class="hint-inline">Ctrl+wheel · 30d/60d = overview span</span>
+      </div>
+      </div>
+      <div class="chart-stage" id="chartStage">
+        <div class="hg-wrap" id="hgWrap">
+          <div class="profiles-scroll" id="profilesScroll">
+            <div class="profiles-row" id="profilesRow">
+              <div class="day-col single"><pre class="profile">Enter ticker (HSIF) → Fetch &amp; build.</pre></div>
+            </div>
+          </div>
+          <div class="crosshair-overlay" id="crosshairOverlay" aria-hidden="true">
+            <div class="ch-v" id="chV"></div>
+            <div class="ch-h" id="chH"></div>
+            <div class="ch-hud" id="chHud"><span class="ch-date">—</span><span class="ch-sep">·</span><span class="ch-pts">—</span></div>
+          </div>
+          <div class="single-pin-tip" id="singlePinTip" aria-hidden="true">
+            <span class="sp-pts">—</span><span class="sp-sep">·</span><span class="sp-date">—</span>
+          </div>
+
+        </div>
+        <div class="timeline" id="timeline">
+          <div class="timeline-inner" id="timelineInner"></div>
+          <div class="tl-readout" id="tlReadout">Date · <b>Pts</b></div>
+        </div>
+        <div class="trend-pane" id="trendPane" title="Session mid (H+L)/2">
+          <div class="trend-badge">Trend · <b>mid</b> (H+L)/2</div>
+          <canvas id="trendCanvas"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script>window.TPO_STATIC=true;</script>
+  <script src="app.js?v=single-pin-1"></script>
+</body>
+</html>
