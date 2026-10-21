@@ -1756,6 +1756,182 @@
     btnExpandSettings.addEventListener("click", () => setSettingsCollapsed(false));
   }
 
+
+  // ---- Legend info tips (POC / VA / Dual / Spike / IB / Single pin) ----
+  const LEGEND_TIPS = {
+    poc: {
+      name: "POC",
+      body: "全日 TPO 最多嘅價位；同分揀離 mid 最近。",
+    },
+    va: {
+      name: "VA / VAH / VAL",
+      body: "由 POC 向外擴，累積約 70% TPO → 價值區上下沿。",
+    },
+    ib: {
+      name: "IB",
+      body: "首兩格 TPO（Initial Balance）高低。",
+    },
+    dual: {
+      name: "Dual",
+      body: "VA 外次高峰：count≥max(2,最高×0.7)，同 POC 之間有谷（中間最少＜該行×0.6 且＜最高×0.5）。淺藍。",
+    },
+    spike: {
+      name: "Spike",
+      body: "VA 外薄尾，該行 count≤2。紅。",
+    },
+    singlepin: {
+      name: "Single pin",
+      body: "孤立單格（連續單格唔算）淡紫向右伸到撞 TPO；hover 條帶另有點數+遺留日。",
+    },
+  };
+
+  const legendTipEl = $("legendTip");
+  let legendTipOpenItem = null;
+  let legendLongPressTimer = null;
+  let legendTipPinned = false;
+
+  function hideLegendTip() {
+    if (legendLongPressTimer) {
+      clearTimeout(legendLongPressTimer);
+      legendLongPressTimer = null;
+    }
+    if (legendTipEl) {
+      legendTipEl.classList.remove("show");
+      legendTipEl.setAttribute("aria-hidden", "true");
+    }
+    if (legendTipOpenItem) {
+      legendTipOpenItem.classList.remove("is-tip-open");
+      legendTipOpenItem = null;
+    }
+    legendTipPinned = false;
+  }
+
+  function positionLegendTip(anchor) {
+    if (!legendTipEl || !anchor) return;
+    const pad = 8;
+    const rect = anchor.getBoundingClientRect();
+    const tip = legendTipEl;
+    tip.style.left = "0px";
+    tip.style.top = "0px";
+    tip.classList.add("show");
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + tw > window.innerWidth - pad) left = window.innerWidth - tw - pad;
+    if (left < pad) left = pad;
+    if (top + th > window.innerHeight - pad) top = rect.top - th - 6;
+    if (top < pad) top = pad;
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }
+
+  function showLegendTip(item, { pin = false } = {}) {
+    if (!legendTipEl || !item) return;
+    const key = item.getAttribute("data-tip-key");
+    const info = LEGEND_TIPS[key];
+    if (!info) return;
+    if (legendTipOpenItem && legendTipOpenItem !== item) {
+      legendTipOpenItem.classList.remove("is-tip-open");
+    }
+    legendTipOpenItem = item;
+    item.classList.add("is-tip-open");
+    const nameEl = legendTipEl.querySelector(".lt-name");
+    const bodyEl = legendTipEl.querySelector(".lt-body");
+    if (nameEl) nameEl.textContent = info.name;
+    if (bodyEl) bodyEl.textContent = info.body;
+    legendTipEl.setAttribute("aria-hidden", "false");
+    positionLegendTip(item);
+    legendTipPinned = !!pin;
+  }
+
+  function bindLegendTips() {
+    const items = document.querySelectorAll(".legend-item[data-tip-key]");
+    items.forEach((item) => {
+      const key = item.getAttribute("data-tip-key");
+      const info = LEGEND_TIPS[key];
+      if (info) {
+        item.setAttribute("aria-label", `${info.name}：${info.body}`);
+      }
+      item.addEventListener("mouseenter", () => {
+        if (!("ontouchstart" in window)) showLegendTip(item);
+      });
+      item.addEventListener("mouseleave", () => {
+        if (!legendTipPinned) hideLegendTip();
+      });
+      item.addEventListener("focus", () => showLegendTip(item, { pin: true }));
+      item.addEventListener("blur", () => hideLegendTip());
+      item.addEventListener(
+        "touchstart",
+        (e) => {
+          if (legendLongPressTimer) clearTimeout(legendLongPressTimer);
+          legendLongPressTimer = setTimeout(() => {
+            legendLongPressTimer = null;
+            showLegendTip(item, { pin: true });
+          }, 420);
+        },
+        { passive: true }
+      );
+      item.addEventListener(
+        "touchend",
+        () => {
+          if (legendLongPressTimer) {
+            clearTimeout(legendLongPressTimer);
+            legendLongPressTimer = null;
+            // short tap: toggle tip
+            if (legendTipOpenItem === item && legendTipPinned) hideLegendTip();
+            else showLegendTip(item, { pin: true });
+          }
+        },
+        { passive: true }
+      );
+      item.addEventListener(
+        "touchmove",
+        () => {
+          if (legendLongPressTimer) {
+            clearTimeout(legendLongPressTimer);
+            legendLongPressTimer = null;
+          }
+        },
+        { passive: true }
+      );
+      item.addEventListener("click", (e) => {
+        // desktop click / keyboard: toggle pin
+        if ("ontouchstart" in window) return;
+        e.preventDefault();
+        if (legendTipOpenItem === item && legendTipPinned) hideLegendTip();
+        else showLegendTip(item, { pin: true });
+      });
+      item.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") hideLegendTip();
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (legendTipOpenItem === item && legendTipPinned) hideLegendTip();
+          else showLegendTip(item, { pin: true });
+        }
+      });
+    });
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!legendTipOpenItem) return;
+        const t = e.target;
+        if (t && (t.closest && (t.closest(".legend-item") || t.closest("#legendTip")))) return;
+        hideLegendTip();
+      },
+      true
+    );
+    window.addEventListener("scroll", () => {
+      if (legendTipOpenItem) positionLegendTip(legendTipOpenItem);
+    }, true);
+    window.addEventListener("resize", () => {
+      if (legendTipOpenItem) positionLegendTip(legendTipOpenItem);
+    });
+  }
+
+  bindLegendTips();
+
+
   setSettingsCollapsed(readStoredCollapsed(), { persist: false });
 
   // If user rotates / resizes across breakpoint with no stored pref, keep current;

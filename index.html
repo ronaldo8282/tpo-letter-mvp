@@ -751,6 +751,57 @@
       }
     }
 
+
+    /* Legend info tips (POC / VA / Dual / Spike / IB / Single pin) */
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      cursor: help;
+      border-radius: 4px;
+      padding: 0.1rem 0.2rem;
+      margin: -0.1rem -0.2rem;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    .legend-item:hover,
+    .legend-item:focus-visible,
+    .legend-item.is-tip-open {
+      color: var(--text);
+      background: #ffffff12;
+    }
+    .legend-item:focus-visible {
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .legend-tip {
+      position: fixed;
+      z-index: 500;
+      display: none;
+      max-width: min(22rem, calc(100vw - 1.5rem));
+      background: #0f1720f2;
+      border: 1px solid #3b82f6aa;
+      color: #e7ecf3;
+      font-size: 0.78rem;
+      font-weight: 500;
+      line-height: 1.4;
+      padding: 0.5rem 0.65rem;
+      border-radius: 6px;
+      box-shadow: 0 6px 20px #000a;
+      pointer-events: none;
+      white-space: normal;
+    }
+    .legend-tip.show { display: block; }
+    .legend-tip .lt-name {
+      display: block;
+      font-weight: 700;
+      font-size: 0.8rem;
+      margin-bottom: 0.2rem;
+      color: #93c5fd;
+    }
+    .legend-tip .lt-body { color: #e7ecf3; }
+
     .trend-badge b { color: #38bdf8; font-weight: 700; }
   </style>
 </head>
@@ -872,13 +923,18 @@
       <div class="main-chrome">
       <div id="err" class="err"></div>
       <div class="stats" id="stats"></div>
-      <div class="legend">
-        <span><i style="background:#f59e0b"></i>POC</span>
-        <span><i style="background:#22c55e"></i>Value Area</span>
-        <span><i style="background:#a855f7"></i>IB range</span>
-        <span><i style="background:#38bdf8"></i>Dual</span>
-        <span><i style="background:#ef4444"></i>Spike</span>
+      <div class="legend" id="legendBar" role="list">
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="poc"><i style="background:#f59e0b"></i>POC</span>
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="va"><i style="background:#22c55e"></i>Value Area</span>
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="ib"><i style="background:#a855f7"></i>IB range</span>
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="dual"><i style="background:#38bdf8"></i>Dual</span>
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="spike"><i style="background:#ef4444"></i>Spike</span>
+        <span class="legend-item" role="listitem" tabindex="0" data-tip-key="singlepin"><i style="background:rgba(186,150,220,0.85)"></i>Single pin</span>
         <span>Same price = same row across days · scroll H/V</span>
+      </div>
+      <div class="legend-tip" id="legendTip" role="tooltip" aria-hidden="true">
+        <span class="lt-name"></span>
+        <span class="lt-body"></span>
       </div>
       <div class="zoom-bar" id="zoomBar">
         <button type="button" id="btnZoomOut" title="Zoom out">−</button>
@@ -920,6 +976,6 @@
     </main>
   </div>
   <button type="button" id="btnExpandSettings" class="settings-fab" aria-label="展開設定" title="展開設定">設定</button>
-  <script src="app.js?v=collapse-settings-1"></script>
+  <script src="app.js?v=legend-tips-1"></script>
 </body>
 </html>
