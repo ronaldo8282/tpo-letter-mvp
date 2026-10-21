@@ -1696,6 +1696,71 @@
   }
   window.addEventListener("resize", () => updateTrendChart(), { passive: true });
 
+
+  // —— Settings pane collapse (mobile priority; FAB stays reachable) ——
+  const SETTINGS_COLLAPSE_KEY = "tpo-settings-collapsed";
+  const layoutEl = document.getElementById("appLayout") || document.querySelector(".layout");
+  const btnCollapseSettings = $("btnCollapseSettings");
+  const btnExpandSettings = $("btnExpandSettings");
+
+  function isNarrowViewport() {
+    return window.matchMedia("(max-width: 900px)").matches;
+  }
+
+  function setSettingsCollapsed(collapsed, { persist = true } = {}) {
+    if (!layoutEl) return;
+    layoutEl.classList.toggle("settings-collapsed", !!collapsed);
+    if (btnCollapseSettings) {
+      btnCollapseSettings.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btnCollapseSettings.textContent = collapsed ? "設定" : "收起";
+      btnCollapseSettings.title = collapsed ? "展開設定" : "收起設定";
+    }
+    if (btnExpandSettings) {
+      btnExpandSettings.classList.toggle("show", !!collapsed);
+      btnExpandSettings.setAttribute("aria-hidden", collapsed ? "false" : "true");
+    }
+    if (persist) {
+      try {
+        localStorage.setItem(SETTINGS_COLLAPSE_KEY, collapsed ? "1" : "0");
+      } catch (_) {}
+    }
+    // Chart fills freed space
+    requestAnimationFrame(() => {
+      try {
+        scheduleRender();
+      } catch (_) {}
+      try {
+        updateTrendChart();
+      } catch (_) {}
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  function readStoredCollapsed() {
+    try {
+      const v = localStorage.getItem(SETTINGS_COLLAPSE_KEY);
+      if (v === "1") return true;
+      if (v === "0") return false;
+    } catch (_) {}
+    // First visit: collapse on phone so HG gets the screen
+    return isNarrowViewport();
+  }
+
+  if (btnCollapseSettings) {
+    btnCollapseSettings.addEventListener("click", () => {
+      const now = layoutEl && layoutEl.classList.contains("settings-collapsed");
+      setSettingsCollapsed(!now);
+    });
+  }
+  if (btnExpandSettings) {
+    btnExpandSettings.addEventListener("click", () => setSettingsCollapsed(false));
+  }
+
+  setSettingsCollapsed(readStoredCollapsed(), { persist: false });
+
+  // If user rotates / resizes across breakpoint with no stored pref, keep current;
+  // stored pref always wins (already applied).
+
   // Defaults
   $("alignPrices").checked = true;
   updateZoomLabel();

@@ -670,16 +670,101 @@
     .single-pin-tip .sp-date { color: #c4b5fd; }
     .single-pin-tip .sp-sep { color: #8b9bb4; margin: 0 0.35rem; }
 
+
+    /* Settings collapse (mobile priority; works on desktop too) */
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin: -0.15rem 0 0.65rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: var(--panel);
+    }
+    .settings-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+    .settings-toggle {
+      width: auto;
+      flex-shrink: 0;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.78rem;
+      border-radius: 999px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .settings-toggle:hover {
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .settings-fab {
+      position: fixed;
+      z-index: 400;
+      left: max(0.65rem, env(safe-area-inset-left));
+      bottom: max(0.75rem, env(safe-area-inset-bottom));
+      width: auto;
+      min-width: 3.2rem;
+      padding: 0.55rem 0.95rem;
+      border-radius: 999px;
+      background: var(--accent);
+      border: 1px solid transparent;
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.85rem;
+      box-shadow: 0 6px 24px #000a, 0 0 0 1px #ffffff18 inset;
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+      touch-action: manipulation;
+    }
+    .settings-fab:hover { filter: brightness(1.1); }
+    .settings-fab.show {
+      display: inline-flex;
+    }
+    .layout.settings-collapsed aside {
+      display: none;
+    }
+    @media (max-width: 900px) {
+      .layout.settings-collapsed {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+      }
+    }
+    @media (min-width: 901px) {
+      .layout.settings-collapsed {
+        grid-template-columns: 1fr;
+      }
+      /* Desktop: also offer a thin reopen chip in main chrome if needed — FAB still works */
+      .settings-fab.show {
+        left: max(0.75rem, env(safe-area-inset-left));
+        bottom: auto;
+        top: max(4.5rem, env(safe-area-inset-top));
+      }
+    }
+
     .trend-badge b { color: #38bdf8; font-weight: 700; }
   </style>
 </head>
 <body>
   <header>
-    <h1>TPO Letter Hourglass · HSIF MVP <span style="font-size:0.7em;color:#c4b5fd">(static)</span></h1>
+    <h1>TPO Letter Hourglass · HSIF MVP</h1>
     <p>TV-style aligned TPO letter walls · shared Points scale · zoom/fit · session <b>0930→0300</b> HK</p>
   </header>
-  <div class="layout">
-    <aside>
+  <div class="layout" id="appLayout">
+    <aside id="settingsPane" aria-label="設定">
+      <div class="settings-head">
+        <span class="settings-title">設定</span>
+        <button type="button" id="btnCollapseSettings" class="settings-toggle" aria-expanded="true" title="收起設定">收起</button>
+      </div>
       <label>Data source</label>
       <select id="source">
         <option value="auto" selected>Auto (Futu → TV → Yahoo)</option>
@@ -834,7 +919,7 @@
       </div>
     </main>
   </div>
-  <script>window.TPO_STATIC=true;</script>
-  <script src="app.js?v=single-pin-1"></script>
+  <button type="button" id="btnExpandSettings" class="settings-fab" aria-label="展開設定" title="展開設定">設定</button>
+  <script src="app.js?v=collapse-settings-1"></script>
 </body>
 </html>
