@@ -621,6 +621,76 @@
       border-radius: 3px;
     }
 
+
+    /* Composite HG overlays (week / month / range) */
+    .composite-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      z-index: 4;
+      overflow: visible;
+    }
+    .composite-col {
+      position: absolute;
+      top: 0;
+      box-sizing: border-box;
+      border: 1px solid #3b82f688;
+      border-radius: 3px;
+      background: #0c121acc;
+      box-shadow: 0 0 0 1px #0006, 0 4px 18px #0008;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .composite-col.composite-week { border-color: #38bdf888; }
+    .composite-col.composite-month { border-color: #f59e0b88; z-index: 5; }
+    .composite-col.composite-range { border-color: #a855f788; z-index: 6; }
+    .composite-col.composite-faded {
+      opacity: 0.32;
+      filter: saturate(0.7);
+      z-index: 4;
+    }
+    .composite-col .composite-head {
+      background: #132033ee;
+      border-bottom: 1px solid #2d3a4f;
+    }
+    .composite-col.composite-month .composite-head { background: #2a1f0eee; }
+    .composite-col.composite-week .composite-head { background: #0e1a24ee; }
+    .composite-col.composite-range .composite-head { background: #1a1028ee; }
+    .day-col.day-faded {
+      opacity: 0.3;
+      filter: saturate(0.65);
+    }
+    .day-col.day-faded .day-head { opacity: 0.95; }
+    .day-head-select { cursor: pointer; }
+    .day-head-select:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+    .day-col.day-range-sel .day-head {
+      background: #3b2a55cc !important;
+      box-shadow: inset 0 -2px 0 #a855f7;
+    }
+    .day-col.day-range-anchor .day-head {
+      background: #1e3a5fcc !important;
+      box-shadow: inset 0 -2px 0 #3b82f6;
+    }
+    .zoom-bar button.comp-btn.active {
+      background: #1d4ed8;
+      border-color: #60a5fa;
+      color: #fff;
+    }
+    .zoom-bar button.comp-btn-clear {
+      border-color: #7f1d1d;
+      color: #fca5a5;
+    }
+    .zoom-bar .composite-hint {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-left: 0.25rem;
+      max-width: 14rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* Single-pin (isolated single-print) orphan highlights */
     .profiles-row {
       position: relative;
@@ -869,14 +939,14 @@
         <button type="button" class="chip" data-sym="^HSI" data-src="yahoo">^HSI spot</button>
       </div>
 
-      <label>Range (side-by-side daily walls)</label>
+      <label>Range (side-by-side · 12M / 6M / 3M / 1M)</label>
       <div class="range-row" id="rangeRow">
-        <button type="button" class="range-btn" data-range="day">Day</button>
-        <button type="button" class="range-btn" data-range="week">Week (5)</button>
-        <button type="button" class="range-btn" data-range="month">Month (~22)</button>
-        <button type="button" class="range-btn active" data-range="half">Half-year (~120)</button>
+        <button type="button" class="range-btn" data-range="12m">12M (~252)</button>
+        <button type="button" class="range-btn" data-range="6m">6M (~126)</button>
+        <button type="button" class="range-btn active" data-range="3m">3M (~63)</button>
+        <button type="button" class="range-btn" data-range="1m">1M (~21)</button>
       </div>
-      <input type="hidden" id="rangeMode" value="half" />
+      <input type="hidden" id="rangeMode" value="3m" />
 
       <label>Session date (optional — Day mode / anchor)</label>
       <input id="sessDate" type="date" />
@@ -922,7 +992,7 @@
       <label>Value Area %</label>
       <input id="vaPct" type="number" value="70" min="50" max="95" step="1" />
 
-      <label><input type="checkbox" id="alignPrices" checked style="width:auto;margin-right:0.35rem" /> Align price scale (TV-style shared bins — on for week/month/half)</label>
+      <label><input type="checkbox" id="alignPrices" checked style="width:auto;margin-right:0.35rem" /> Align price scale (TV-style shared bins — on for 12M/6M/3M/1M)</label>
 
       <div class="btn-row">
         <button type="button" id="btnFetch">Fetch &amp; build</button>
@@ -973,7 +1043,11 @@
         <button type="button" id="btnView30" title="Fit ~30 day columns in view">30d</button>
         <button type="button" id="btnView60" title="Fit ~60 day columns in view">60d</button>
         <button type="button" id="btnZoom100" title="Reset zoom">100%</button>
-        <span class="hint-inline">Ctrl+wheel · 30d/60d = overview span</span>
+        <button type="button" id="btnWeekHg" class="comp-btn" aria-pressed="false" title="週 TPO：合併當週交易日，日 HG 淡底">週 HG</button>
+        <button type="button" id="btnMonthHg" class="comp-btn" aria-pressed="false" title="月 TPO：合併當月全日，週淡底／日更淡">月 HG</button>
+        <button type="button" id="btnClearMerge" class="comp-btn-clear" hidden disabled title="清除週／月／手選合併">清除合併</button>
+        <span class="composite-hint" id="compositeHint">撳日期頭可合併連續日</span>
+        <span class="hint-inline">Ctrl+wheel · 30d/60d</span>
       </div>
       </div>
       <div class="chart-stage" id="chartStage">
@@ -1006,6 +1080,6 @@
   </div>
   <button type="button" id="btnExpandSettings" class="settings-fab" aria-label="展開設定" title="展開設定">設定</button>
   <script>window.TPO_STATIC=true;</script>
-  <script src="app.js?v=collapse-fix-1"></script>
+  <script src="app.js?v=composite-hg-2"></script>
 </body>
 </html>

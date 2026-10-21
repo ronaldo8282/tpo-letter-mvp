@@ -6,13 +6,14 @@
   const $ = (id) => document.getElementById(id);
 
   const RANGE_PRESETS = {
-    day: { sessions: 1, lookbackDays: 5, yahooRange: "5d", label: "Day" },
-    week: { sessions: 5, lookbackDays: 14, yahooRange: "5d", label: "Week (5)" },
-    month: { sessions: 22, lookbackDays: 45, yahooRange: "60d", label: "Month (~22)" },
-    half: { sessions: 120, lookbackDays: 200, yahooRange: "6mo", label: "Half-year (~120)" },
+    "12m": { sessions: 252, lookbackDays: 400, yahooRange: "1y", label: "12M (~252)" },
+    "6m": { sessions: 126, lookbackDays: 220, yahooRange: "6mo", label: "6M (~126)" },
+    "3m": { sessions: 63, lookbackDays: 110, yahooRange: "3mo", label: "3M (~63)" },
+    "1m": { sessions: 21, lookbackDays: 45, yahooRange: "1mo", label: "1M (~21)" },
   };
+  const DEFAULT_RANGE = "3m";
 
-  const FIRST_PAINT = 64; // enough for 60d overview on first paint
+  const FIRST_PAINT = 80; // enough for 60d overview on first paint
   const FILL_CHUNK = 40;
   const BASE_ROW_H = 13;
   const HEAD_H = 44;
@@ -90,6 +91,41 @@
     throw lastErr || new Error("static profiles.json not found");
   }
 
+  // Full static snapshot (all baked sessions); range presets slice locally.
+  let staticBundle = null;
+
+  function applyRangeToStatic(bundle, preset) {
+    const allIds = (bundle && bundle.sessionIds) || [];
+    const want = Math.max(1, (preset && preset.sessions) || RANGE_PRESETS[DEFAULT_RANGE].sessions);
+    const slicedIds = allIds.length > want ? allIds.slice(-want) : allIds.slice();
+    const idSet = new Set(slicedIds);
+    const byId = new Map();
+    for (const p of (bundle && bundle.profiles) || []) {
+      if (p && p.sessionId && idSet.has(p.sessionId)) byId.set(p.sessionId, p);
+    }
+    const profiles = slicedIds.map((id) => byId.get(id)).filter(Boolean);
+    const available = allIds.length;
+    const short = available < want;
+    const baseNote = (bundle && bundle.note) || "";
+    const rangeNote =
+      "Range " +
+      ((preset && preset.label) || want) +
+      " · showing " +
+      profiles.length +
+      "/" +
+      want +
+      (short ? " (baked " + available + " available — history short)" : "");
+    return Object.assign({}, bundle, {
+      sessionIds: slicedIds,
+      profiles: profiles,
+      returned: profiles.length,
+      total: available,
+      wantSessions: want,
+      availableSessions: available,
+      note: rangeNote + (baseNote ? " · " + baseNote : ""),
+    });
+  }
+
   // ---- state ----
   let sessionIds = []; // oldest → newest
   let profileById = new Map();
@@ -103,6 +139,13 @@
   let lastGeo = null; // { widths, offsets, totalW, gap, axisW, rh, hh, bodyH, barMode }
   let crosshair = { sid: null, price: null, key: null, localX: 0, localY: 0, visible: false };
   let singlePinSegments = []; // { startIdx, endIdx, key, price, sid, step, extendsToPad }
+
+  // Composite HG overlays: Day → Week → Month; custom range exclusive with week/month
+  let weekHgOn = false;
+  let monthHgOn = false;
+  let rangeSel = null; // { startIdx, endIdx } inclusive, or null
+  let rangeAnchorIdx = null; // first tap while selecting
+  const compositeCache = new Map(); // key -> merged profile
 
 
   function showErr(msg) {
@@ -128,8 +171,8 @@
   }
 
   function currentRange() {
-    const mode = $("rangeMode").value || "half";
-    return RANGE_PRESETS[mode] || RANGE_PRESETS.half;
+    const mode = $("rangeMode").value || DEFAULT_RANGE;
+    return RANGE_PRESETS[mode] || RANGE_PRESETS[DEFAULT_RANGE];
   }
 
   function wantAlign() {
@@ -137,13 +180,8 @@
   }
 
   function setAlignDefaultForRange() {
-    const mode = $("rangeMode").value || "half";
-    // Align ON by default for week / month / half-year
-    if (mode === "day") {
-      // leave user choice; default still useful for single day = no-op
-    } else {
-      $("alignPrices").checked = true;
-    }
+    // Align ON for all multi-month walls
+    if ($("alignPrices")) $("alignPrices").checked = true;
   }
 
   function fmtPrice(p, step) {
@@ -430,7 +468,8 @@
   }
 
   // ---- aligned column: absolute rows on shared bin grid (no empty DOM) ----
-  function renderAlignedColumn(result, grid, w, rh, fp, hh) {
+  function renderAlignedColumn(result, grid, w, rh, fp, hh, colOpts) {
+    colOpts = colOpts || {};
     const {
       rows, poc, vah, val, ibHi, ibLo, dualKeys, spikeKeys, step, sessionId, totalTpo,
       letterCount,
@@ -504,12 +543,15 @@
     const meta = thin
       ? ""
       : `<div class="day-meta">${fmtPrice(poc.price, step)} · ${nLetters}L</div>`;
-    const head = `<div class="day-head" style="height:${hh}px"><b title="${sessionId}">${escapeHtml(
+    const head = `<div class="day-head day-head-select" style="height:${hh}px" data-idx="${colOpts.idx != null ? colOpts.idx : ""}" title="撳選合併範圍 · ${sessionId}"><b title="${sessionId}">${escapeHtml(
       label
     )}</b>${meta}</div>`;
     const thinCls = thin ? " thin" : "";
     const barCls = barMode ? " bar-mode" : "";
-    return `<div class="day-col aligned${thinCls}${barCls}" data-sid="${sessionId}" data-date="${escapeHtml(sessionId)}" style="width:${w}px;min-width:0">
+    const fadeCls = colOpts.faded ? " day-faded" : "";
+    const selCls = colOpts.rangeSelected ? " day-range-sel" : "";
+    const anchorCls = colOpts.rangeAnchor ? " day-range-anchor" : "";
+    return `<div class="day-col aligned${thinCls}${barCls}${fadeCls}${selCls}${anchorCls}" data-sid="${sessionId}" data-date="${escapeHtml(sessionId)}" data-idx="${colOpts.idx != null ? colOpts.idx : ""}" style="width:${w}px;min-width:0">
       ${head}
       <div class="day-body" style="height:${bodyH}px;position:relative">
         <div class="poc-line" style="top:${pocTop}px"></div>
@@ -703,6 +745,504 @@
     tip.style.transform = `translate(${Math.max(4, x)}px, ${Math.max(4, y)}px)`;
   }
 
+
+  // ---- Composite HG (week / month / multi-day merge) ----
+  const DAY_FADE_OPACITY = 0.3;
+
+  function compositeActive() {
+    return !!(weekHgOn || monthHgOn || (rangeSel && rangeSel.endIdx > rangeSel.startIdx));
+  }
+
+  function buildAlphabetList() {
+    const mode = ($("alphabet") && $("alphabet").value) || "hk";
+    const firstLetter = (($("firstLetter") && $("firstLetter").value) || "D").trim() || "D";
+    const upperSkip = "ABCDEFGHILMNOPQRSTUVWXYZ";
+    const lowerSkip = "abcdefghiklmnopqrstuvwxyz";
+    const classicU = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const classicL = "abcdefghijklmnopqrstuvwxyz";
+    if (mode === "hk") {
+      let seq = (upperSkip + lowerSkip).split("");
+      const fl = firstLetter.toUpperCase();
+      let idx = seq.findIndex((c) => c.toUpperCase() === fl);
+      if (idx > 0) seq = seq.slice(idx).concat(seq.slice(0, idx));
+      else if (idx === -1) seq = [fl].concat(seq.filter((c) => c.toUpperCase() !== fl));
+      return seq;
+    }
+    return (classicU + classicL).split("");
+  }
+
+  function parseSidDate(sid) {
+    if (!sid || !/^\d{4}-\d{2}-\d{2}/.test(sid)) return null;
+    const y = +sid.slice(0, 4);
+    const m = +sid.slice(5, 7);
+    const d = +sid.slice(8, 10);
+    return new Date(y, m - 1, d, 12, 0, 0);
+  }
+
+  function weekStartKey(sid) {
+    const dt = parseSidDate(sid);
+    if (!dt) return "week:" + sid;
+    const day = dt.getDay(); // 0=Sun
+    const sinceMon = (day + 6) % 7;
+    const mon = new Date(dt);
+    mon.setDate(dt.getDate() - sinceMon);
+    const y = mon.getFullYear();
+    const m = String(mon.getMonth() + 1).padStart(2, "0");
+    const d = String(mon.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+
+  function monthKey(sid) {
+    if (sid && sid.length >= 7) return sid.slice(0, 7);
+    return "month:" + sid;
+  }
+
+  function vaPctValue() {
+    const v = parseFloat($("vaPct") && $("vaPct").value);
+    return isFinite(v) ? v : 70;
+  }
+
+  /** Merge day profiles: one letter per day; letter present if day had any TPO at that key. */
+  function mergeDayProfiles(sids, label) {
+    const cacheKey =
+      (label || "merge") +
+      "|" +
+      sids.join(",") +
+      "|" +
+      (($("alphabet") && $("alphabet").value) || "hk") +
+      "|" +
+      (($("firstLetter") && $("firstLetter").value) || "D") +
+      "|" +
+      vaPctValue();
+    if (compositeCache.has(cacheKey)) return compositeCache.get(cacheKey);
+
+    const alphabet = buildAlphabetList();
+    const loaded = [];
+    for (let i = 0; i < sids.length; i++) {
+      const p = profileById.get(sids[i]);
+      if (p && p.rows && p.rows.length) loaded.push({ sid: sids[i], profile: p, letter: alphabet[i % alphabet.length] });
+    }
+    if (!loaded.length) {
+      compositeCache.set(cacheKey, null);
+      return null;
+    }
+
+    const step = loaded[0].profile.step || parseFloat($("points").value) || 5;
+    const binMap = new Map(); // key -> letter string chars
+    let ibHi = null;
+    let ibLo = null;
+    for (const item of loaded) {
+      const keys = new Set();
+      for (const r of item.profile.rows) {
+        if (printCountOf(r) > 0) keys.add(r.key);
+      }
+      for (const k of keys) {
+        const arr = binMap.get(k) || [];
+        arr.push(item.letter);
+        binMap.set(k, arr);
+      }
+      if (item.profile.ibHi != null) {
+        ibHi = ibHi == null ? item.profile.ibHi : Math.max(ibHi, item.profile.ibHi);
+        ibLo = ibLo == null ? item.profile.ibLo : Math.min(ibLo, item.profile.ibLo);
+      }
+    }
+
+    const keys = Array.from(binMap.keys()).sort((a, b) => b - a);
+    const rows = keys.map((k) => {
+      const letters = binMap.get(k).join("");
+      return { key: k, price: k * step, letters, count: letters.length };
+    });
+    if (!rows.length) {
+      compositeCache.set(cacheKey, null);
+      return null;
+    }
+
+    const maxC = Math.max(...rows.map((r) => r.count));
+    const mid = (rows[0].price + rows[rows.length - 1].price) / 2;
+    let poc = rows[0];
+    let bestDist = Infinity;
+    for (const r of rows) {
+      if (r.count === maxC) {
+        const d = Math.abs(r.price - mid);
+        if (d < bestDist) {
+          bestDist = d;
+          poc = r;
+        }
+      }
+    }
+
+    const totalTpo = rows.reduce((s, r) => s + r.count, 0);
+    const target = Math.ceil((totalTpo * vaPctValue()) / 100);
+    let pocIdx = rows.findIndex((r) => r.key === poc.key);
+    let vaTop = pocIdx;
+    let vaBot = pocIdx;
+    let acc = rows[pocIdx].count;
+    while (acc < target) {
+      const above = vaTop > 0 ? rows[vaTop - 1].count : -1;
+      const below = vaBot < rows.length - 1 ? rows[vaBot + 1].count : -1;
+      if (above < 0 && below < 0) break;
+      if (above >= below) {
+        vaTop -= 1;
+        acc += rows[vaTop].count;
+      } else {
+        vaBot += 1;
+        acc += rows[vaBot].count;
+      }
+    }
+    const vah = rows[vaTop];
+    const val = rows[vaBot];
+
+    const dualKeys = [];
+    const threshold = Math.max(2, Math.floor(maxC * 0.7));
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (i === pocIdx || r.count < threshold) continue;
+      if (vaTop <= i && i <= vaBot) continue;
+      const lo = Math.min(i, pocIdx);
+      const hi = Math.max(i, pocIdx);
+      let minBetween = Infinity;
+      for (let j = lo + 1; j < hi; j++) minBetween = Math.min(minBetween, rows[j].count);
+      if (!isFinite(minBetween)) minBetween = 0;
+      if (minBetween < r.count * 0.6 && minBetween < maxC * 0.5) dualKeys.push(r.key);
+    }
+
+    const spikeKeys = [];
+    for (let i = 0; i < vaTop; i++) if (rows[i].count <= 2) spikeKeys.push(rows[i].key);
+    for (let i = vaBot + 1; i < rows.length; i++) if (rows[i].count <= 2) spikeKeys.push(rows[i].key);
+
+    const result = {
+      sessionId: label || loaded[0].sid + "…",
+      letters: loaded.map((x, i) => ({ letter: x.letter, sid: x.sid, ord: i })),
+      rows,
+      poc,
+      vah,
+      val,
+      vaTop,
+      vaBot,
+      ibHi,
+      ibLo,
+      totalTpo,
+      dualKeys,
+      spikeKeys,
+      step,
+      letterCount: loaded.length,
+      composite: true,
+      dayCount: loaded.length,
+    };
+    compositeCache.set(cacheKey, result);
+    return result;
+  }
+
+  function groupIndicesByKey(keyFn) {
+    const groups = [];
+    let curKey = null;
+    let start = 0;
+    for (let i = 0; i < sessionIds.length; i++) {
+      const k = keyFn(sessionIds[i]);
+      if (curKey == null) {
+        curKey = k;
+        start = i;
+      } else if (k !== curKey) {
+        groups.push({ key: curKey, startIdx: start, endIdx: i - 1 });
+        curKey = k;
+        start = i;
+      }
+    }
+    if (curKey != null) groups.push({ key: curKey, startIdx: start, endIdx: sessionIds.length - 1 });
+    return groups;
+  }
+
+  function buildWeekGroups() {
+    return groupIndicesByKey(weekStartKey)
+      .map((g) => {
+        const sids = sessionIds.slice(g.startIdx, g.endIdx + 1);
+        const profile = mergeDayProfiles(sids, "W " + g.key);
+        if (!profile) return null;
+        const label =
+          sids.length === 1
+            ? sids[0].slice(5)
+            : sids[0].slice(5) + "–" + sids[sids.length - 1].slice(5);
+        return { kind: "week", startIdx: g.startIdx, endIdx: g.endIdx, sids, profile, label: "週 " + label };
+      })
+      .filter(Boolean);
+  }
+
+  function buildMonthGroups() {
+    return groupIndicesByKey(monthKey)
+      .map((g) => {
+        const sids = sessionIds.slice(g.startIdx, g.endIdx + 1);
+        const profile = mergeDayProfiles(sids, "M " + g.key);
+        if (!profile) return null;
+        return {
+          kind: "month",
+          startIdx: g.startIdx,
+          endIdx: g.endIdx,
+          sids,
+          profile,
+          label: "月 " + g.key,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function buildRangeGroup() {
+    if (!rangeSel || rangeSel.endIdx <= rangeSel.startIdx) return null;
+    const a = Math.min(rangeSel.startIdx, rangeSel.endIdx);
+    const b = Math.max(rangeSel.startIdx, rangeSel.endIdx);
+    const sids = sessionIds.slice(a, b + 1);
+    const profile = mergeDayProfiles(sids, "R " + sids[0] + ".." + sids[sids.length - 1]);
+    if (!profile) return null;
+    return {
+      kind: "range",
+      startIdx: a,
+      endIdx: b,
+      sids,
+      profile,
+      label: sids[0].slice(5) + "–" + sids[sids.length - 1].slice(5) + " 合併",
+    };
+  }
+
+  function indicesUnderComposite() {
+    const set = new Set();
+    if (rangeSel && rangeSel.endIdx > rangeSel.startIdx) {
+      const a = Math.min(rangeSel.startIdx, rangeSel.endIdx);
+      const b = Math.max(rangeSel.startIdx, rangeSel.endIdx);
+      for (let i = a; i <= b; i++) set.add(i);
+      return set;
+    }
+    if (monthHgOn || weekHgOn) {
+      for (let i = 0; i < sessionIds.length; i++) set.add(i);
+    }
+    return set;
+  }
+
+  function spanLeftWidth(geo, startIdx, endIdx) {
+    const gap = geo.gap || 0;
+    const left = geo.offsets[startIdx];
+    const right = geo.offsets[endIdx + 1] - gap;
+    return { left, width: Math.max(4, right - left) };
+  }
+
+  function renderCompositeColumnHtml(group, grid, left, width, rh, fp, hh, opts) {
+    opts = opts || {};
+    const faded = !!opts.faded;
+    const result = group.profile;
+    const {
+      rows, poc, vah, val, ibHi, ibLo, dualKeys, spikeKeys, step, totalTpo, letterCount,
+    } = result;
+    const dual = new Set(dualKeys || []);
+    const spike = new Set(spikeKeys || []);
+    const bodyH = grid.nBins * rh;
+    const vaHi = Math.max(vah.key, val.key);
+    const vaLo = Math.min(vah.key, val.key);
+    const barMode = isBarMode();
+    const maxPrints = Math.max(1, maxPrintsOf(result));
+    const cellH = barMode ? Math.max(rh, 1.5) + (rh < 3 ? 0.35 : 0) : rh;
+    const innerW = Math.max(4, width - (barMode ? 0 : 4));
+    const nLetters = letterCount != null ? letterCount : 0;
+
+    const cells = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.key < grid.minKey || r.key > grid.maxKey) continue;
+      const top = (grid.maxKey - r.key) * rh;
+      const n = printCountOf(r);
+      if (barMode && n <= 0) continue;
+      const classes = ["tpo-cell"];
+      if (barMode) classes.push("bar-only");
+      if (r.key === poc.key) classes.push("row-poc");
+      if (r.key >= vaLo && r.key <= vaHi) classes.push("row-va");
+      if (dual.has(r.key)) classes.push("row-dual");
+      if (spike.has(r.key) && !(r.key >= vaLo && r.key <= vaHi)) classes.push("row-spike");
+      if (ibHi != null && r.price <= ibHi + step / 2 && r.price >= ibLo - step / 2) {
+        classes.push("row-ib");
+      }
+      let style = `top:${top}px;height:${cellH}px;line-height:${cellH}px;font-size:${fp}px`;
+      let text = "";
+      if (barMode) {
+        const frac = Math.max(0.12, Math.min(1, n / maxPrints));
+        const barW = Math.max(3, Math.round(frac * innerW));
+        style += `;width:${barW}px;min-width:3px;left:0`;
+      } else {
+        text = escapeHtml(r.letters || "");
+        if (zoom < 0.65 && n > 0) {
+          const minBlock = Math.max(2, Math.round((n / maxPrints) * innerW * 0.85));
+          style += `;min-width:${minBlock}px`;
+        }
+      }
+      const titleBits = [group.label, fmtPrice(r.price, step) + " pts"];
+      if (r.letters) titleBits.push(r.letters);
+      cells.push(
+        `<div class="${classes.join(" ")}" style="${style}" title="${escapeHtml(
+          titleBits.join(" · ")
+        )}">${text}</div>`
+      );
+    }
+
+    const pocTop = (grid.maxKey - poc.key) * rh + rh / 2;
+    const thin = width < 72 || zoom < 0.35;
+    const meta = thin
+      ? ""
+      : `<div class="day-meta">${fmtPrice(poc.price, step)} · ${nLetters}L / ${totalTpo}p</div>`;
+    const fadeCls = faded ? " composite-faded" : "";
+    const kindCls = " composite-" + (group.kind || "merge");
+    return (
+      `<div class="composite-col${kindCls}${fadeCls}" data-kind="${escapeHtml(group.kind || "")}"` +
+      ` style="left:${left}px;width:${width}px;min-width:${width}px">` +
+      `<div class="day-head composite-head" style="height:${hh}px"><b title="${escapeHtml(
+        group.label
+      )}">${escapeHtml(group.label)}</b>${meta}</div>` +
+      `<div class="day-body" style="height:${bodyH}px;position:relative">` +
+      `<div class="poc-line" style="top:${pocTop}px"></div>` +
+      cells.join("") +
+      `</div></div>`
+    );
+  }
+
+  function renderCompositeLayersHtml(geo, grid, rh, fp, hh, viewFirst, viewLast) {
+    if (!grid || !geo || !compositeActive()) return "";
+    const layerW = (geo.contentW != null ? geo.contentW : geo.offsets[sessionIds.length]) + (geo.rightEdgePad || RIGHT_EDGE_PAD);
+    const layerH = hh + grid.nBins * rh;
+    const parts = [];
+
+    const overlaps = (g) => g.endIdx >= viewFirst && g.startIdx <= viewLast;
+
+    // Stack bottom→top: week (may fade under month), then month, then range
+    if (weekHgOn && !rangeSel) {
+      const weeks = buildWeekGroups();
+      for (const g of weeks) {
+        if (!overlaps(g)) continue;
+        const { left, width } = spanLeftWidth(geo, g.startIdx, g.endIdx);
+        parts.push(
+          renderCompositeColumnHtml(g, grid, left, width, rh, fp, hh, {
+            faded: !!monthHgOn, // week fades under month
+          })
+        );
+      }
+    }
+    if (monthHgOn && !rangeSel) {
+      const months = buildMonthGroups();
+      for (const g of months) {
+        if (!overlaps(g)) continue;
+        const { left, width } = spanLeftWidth(geo, g.startIdx, g.endIdx);
+        parts.push(renderCompositeColumnHtml(g, grid, left, width, rh, fp, hh, { faded: false }));
+      }
+    }
+    if (rangeSel && rangeSel.endIdx > rangeSel.startIdx) {
+      const g = buildRangeGroup();
+      if (g && overlaps(g)) {
+        const { left, width } = spanLeftWidth(geo, g.startIdx, g.endIdx);
+        parts.push(renderCompositeColumnHtml(g, grid, left, width, rh, fp, hh, { faded: false }));
+      }
+    }
+
+    if (!parts.length) return "";
+    return (
+      `<div class="composite-layer" id="compositeLayer" style="width:${layerW}px;height:${layerH}px">` +
+      parts.join("") +
+      `</div>`
+    );
+  }
+
+  function clearRangeSelection() {
+    rangeSel = null;
+    rangeAnchorIdx = null;
+  }
+
+  function setWeekHg(on) {
+    weekHgOn = !!on;
+    if (weekHgOn) clearRangeSelection();
+    if (weekHgOn || monthHgOn) {
+      if ($("alignPrices") && !$("alignPrices").checked) $("alignPrices").checked = true;
+    }
+    syncCompositeButtons();
+    compositeCache.clear();
+    scheduleRender();
+  }
+
+  function setMonthHg(on) {
+    monthHgOn = !!on;
+    if (monthHgOn) clearRangeSelection();
+    if (weekHgOn || monthHgOn) {
+      if ($("alignPrices") && !$("alignPrices").checked) $("alignPrices").checked = true;
+    }
+    syncCompositeButtons();
+    compositeCache.clear();
+    scheduleRender();
+  }
+
+  function clearAllComposites() {
+    weekHgOn = false;
+    monthHgOn = false;
+    clearRangeSelection();
+    syncCompositeButtons();
+    scheduleRender();
+  }
+
+  function syncCompositeButtons() {
+    const bw = $("btnWeekHg");
+    const bm = $("btnMonthHg");
+    const bc = $("btnClearMerge");
+    if (bw) {
+      bw.classList.toggle("active", weekHgOn);
+      bw.setAttribute("aria-pressed", weekHgOn ? "true" : "false");
+    }
+    if (bm) {
+      bm.classList.toggle("active", monthHgOn);
+      bm.setAttribute("aria-pressed", monthHgOn ? "true" : "false");
+    }
+    if (bc) {
+      const show = compositeActive() || rangeAnchorIdx != null;
+      bc.hidden = !show;
+      bc.disabled = !show;
+    }
+    const hint = $("compositeHint");
+    if (hint) {
+      if (rangeSel && rangeSel.endIdx > rangeSel.startIdx) {
+        const a = sessionIds[Math.min(rangeSel.startIdx, rangeSel.endIdx)];
+        const b = sessionIds[Math.max(rangeSel.startIdx, rangeSel.endIdx)];
+        hint.textContent = "合併 " + (a || "") + " → " + (b || "");
+      } else if (rangeAnchorIdx != null) {
+        hint.textContent = "已選 " + (sessionIds[rangeAnchorIdx] || "") + " · 再撳另一日完成範圍";
+      } else if (monthHgOn && weekHgOn) {
+        hint.textContent = "月 HG 面 · 週淡底 · 日更淡";
+      } else if (monthHgOn) {
+        hint.textContent = "月 HG 面 · 日淡底";
+      } else if (weekHgOn) {
+        hint.textContent = "週 HG 面 · 日淡底";
+      } else {
+        hint.textContent = "撳日期頭可合併連續日";
+      }
+    }
+  }
+
+  function onDayHeadSelect(idx) {
+    if (idx == null || idx < 0 || idx >= sessionIds.length) return;
+    // Selecting a range clears week/month
+    if (weekHgOn || monthHgOn) {
+      weekHgOn = false;
+      monthHgOn = false;
+    }
+    if (rangeAnchorIdx == null) {
+      rangeAnchorIdx = idx;
+      rangeSel = { startIdx: idx, endIdx: idx };
+    } else {
+      const a = Math.min(rangeAnchorIdx, idx);
+      const b = Math.max(rangeAnchorIdx, idx);
+      if (b === a) {
+        // same day again → cancel
+        clearRangeSelection();
+      } else {
+        rangeSel = { startIdx: a, endIdx: b };
+        rangeAnchorIdx = null;
+        if ($("alignPrices") && !$("alignPrices").checked) $("alignPrices").checked = true;
+      }
+    }
+    syncCompositeButtons();
+    scheduleRender();
+  }
+
+
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
@@ -720,7 +1260,11 @@
       return;
     }
 
-    const align = wantAlign() && sessionIds.length > 0;
+    // Composites need shared price bins
+    if (compositeActive() && $("alignPrices") && !$("alignPrices").checked) {
+      $("alignPrices").checked = true;
+    }
+    const align = (wantAlign() || compositeActive()) && sessionIds.length > 0;
     const tRender0 = performance.now();
 
     if (align) {
@@ -852,12 +1396,24 @@
       );
     }
 
+    const fadeIdx = indicesUnderComposite();
+    const rangeActive = !!(rangeSel && rangeSel.endIdx >= rangeSel.startIdx);
+    const rA = rangeActive ? Math.min(rangeSel.startIdx, rangeSel.endIdx) : -1;
+    const rB = rangeActive ? Math.max(rangeSel.startIdx, rangeSel.endIdx) : -1;
+
     for (let i = first; i <= last; i++) {
       const sid = sessionIds[i];
       const p = profileById.get(sid);
       const w = widths[i];
       if (p) {
-        parts.push(renderAlignedColumn(p, grid, w, rh, fp, hh));
+        parts.push(
+          renderAlignedColumn(p, grid, w, rh, fp, hh, {
+            idx: i,
+            faded: fadeIdx.has(i),
+            rangeSelected: rangeActive && i >= rA && i <= rB,
+            rangeAnchor: rangeAnchorIdx === i,
+          })
+        );
       } else {
         parts.push(placeholderCol(sid, w, spacerH));
       }
@@ -876,12 +1432,26 @@
     const keep = sc.scrollLeft;
     const keepTop = sc.scrollTop;
 
-    computeSinglePinSegments();
+    // Hide single-pin while any composite overlay is active
+    if (compositeActive()) {
+      singlePinSegments = [];
+    } else {
+      computeSinglePinSegments();
+    }
     const pinLayer = renderSinglePinLayerHtml(
       { offsets, contentW, rightEdgePad: edgePad },
       grid,
       rh,
       hh
+    );
+    const compLayer = renderCompositeLayersHtml(
+      { offsets, contentW, rightEdgePad: edgePad, gap: geo.gap },
+      grid,
+      rh,
+      fp,
+      hh,
+      first,
+      last
     );
     const axisHtml = renderPriceAxis(grid, rh, fp, hh);
     sc.innerHTML =
@@ -889,6 +1459,7 @@
       axisHtml +
       `<div class="profiles-row" id="profilesRow" style="gap:${geo.gap}px;position:relative">` +
       pinLayer +
+      compLayer +
       `${parts.join("")}</div>` +
       `</div>`;
 
@@ -1096,6 +1667,7 @@
       range: preset.yahooRange,
       lookback_days: String(preset.lookbackDays),
       sessions: String(preset.sessions),
+      range_mode: $("rangeMode").value || "6m",
       points: $("points").value,
       block_min: $("blockMin").value,
       open: $("sessOpen").value,
@@ -1193,14 +1765,20 @@
     const t0 = performance.now();
     try {
       profileById = new Map();
+      compositeCache.clear();
       sessionIds = [];
       globalGrid = null;
       setAlignDefaultForRange();
       let payload;
+      if (STATIC_MODE && opts.refresh) staticBundle = null;
       if (STATIC_MODE) {
-        lastParamsKey = "static";
-        payload = await loadStaticProfiles();
-        if (!payload || payload.error) throw new Error((payload && payload.error) || "static load failed");
+        const preset = currentRange();
+        lastParamsKey = "static:" + (($("rangeMode") && $("rangeMode").value) || DEFAULT_RANGE);
+        if (!staticBundle) staticBundle = await loadStaticProfiles();
+        if (!staticBundle || staticBundle.error) {
+          throw new Error((staticBundle && staticBundle.error) || "static load failed");
+        }
+        payload = applyRangeToStatic(staticBundle, preset);
       } else {
       const firstLimit =
         currentRange().sessions <= FIRST_PAINT ? currentRange().sessions : FIRST_PAINT;
@@ -1222,16 +1800,25 @@
 
       ingestProfiles(payload);
       const ms = Math.round(performance.now() - t0);
+      const wantS = currentRange().sessions;
+      const haveS = sessionIds.length;
+      const availS = payload.availableSessions != null ? payload.availableSessions : payload.total;
+      const rangeLabel = currentRange().label || wantS;
       showSrcNote(
         [
           payload.source,
           payload.symbol,
           payload.shortName,
-          `${payload.returned}/${payload.total} days first paint`,
-          `${ms}ms (api ${payload.timingMs && payload.timingMs.total}ms)`,
+          `${haveS}/${wantS} · ${rangeLabel}` +
+            (availS != null && availS < wantS ? ` (available ${availS})` : ""),
+          STATIC_MODE ? `${ms}ms static` : `${ms}ms (api ${payload.timingMs && payload.timingMs.total}ms)`,
           wantAlign() ? "aligned scale" : "per-day scale",
           payload.barsFrom,
-          payload.cacheMisses ? `built ${payload.rebuilt}` : "cache warm",
+          !STATIC_MODE && payload.cacheMisses
+            ? `built ${payload.rebuilt}`
+            : STATIC_MODE
+              ? "baked snapshot"
+              : "cache warm",
           payload.note,
         ]
           .filter(Boolean)
@@ -1260,6 +1847,7 @@
 
   function rebuildVisible() {
     if (STATIC_MODE) {
+      staticBundle = null;
       showSrcNote("靜態版：Reload snapshot（無 Flask API）…");
       fetchAndBuild({ refresh: false });
       return;
@@ -1279,9 +1867,9 @@
       $("points").value = "5";
       $("alphabet").value = "hk";
       $("firstLetter").value = "D";
-      $("rangeMode").value = "day";
+      $("rangeMode").value = "1m";
       document.querySelectorAll(".range-btn").forEach((b) => {
-        b.classList.toggle("active", b.getAttribute("data-range") === "day");
+        b.classList.toggle("active", b.getAttribute("data-range") === "1m");
       });
       showSrcNote("Sample is US-hours demo; prefer Fetch HSIF.");
       showErr("Sample CSV is fallback only. Click Fetch & build for HSIF (fast cached path).");
@@ -1996,6 +2584,62 @@
       if (legendTipOpenItem) positionLegendTip(legendTipOpenItem);
     });
   }
+
+
+  // ---- Composite HG toggles + date-head range select ----
+  const btnWeekHg = $("btnWeekHg");
+  const btnMonthHg = $("btnMonthHg");
+  const btnClearMerge = $("btnClearMerge");
+  if (btnWeekHg) {
+    btnWeekHg.addEventListener("click", () => setWeekHg(!weekHgOn));
+  }
+  if (btnMonthHg) {
+    btnMonthHg.addEventListener("click", () => setMonthHg(!monthHgOn));
+  }
+  if (btnClearMerge) {
+    btnClearMerge.addEventListener("click", () => clearAllComposites());
+  }
+  if ($("alphabet")) {
+    $("alphabet").addEventListener("change", () => {
+      compositeCache.clear();
+      if (compositeActive()) scheduleRender();
+    });
+  }
+  if ($("firstLetter")) {
+    $("firstLetter").addEventListener("change", () => {
+      compositeCache.clear();
+      if (compositeActive()) scheduleRender();
+    });
+  }
+  if ($("vaPct")) {
+    $("vaPct").addEventListener("change", () => {
+      compositeCache.clear();
+      if (compositeActive()) scheduleRender();
+    });
+  }
+
+  const scForSelect = $("profilesScroll");
+  if (scForSelect) {
+    scForSelect.addEventListener("click", (ev) => {
+      const head = ev.target && ev.target.closest && ev.target.closest(".day-head-select");
+      if (!head) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      let idx = parseInt(head.getAttribute("data-idx"), 10);
+      if (!isFinite(idx)) {
+        const col = head.closest(".day-col");
+        idx = col ? parseInt(col.getAttribute("data-idx"), 10) : NaN;
+      }
+      if (!isFinite(idx)) {
+        const sid = (head.closest(".day-col") || {}).getAttribute
+          ? head.closest(".day-col").getAttribute("data-sid")
+          : null;
+        idx = sid ? sessionIds.indexOf(sid) : -1;
+      }
+      if (idx >= 0) onDayHeadSelect(idx);
+    });
+  }
+  syncCompositeButtons();
 
   bindLegendTips();
 
